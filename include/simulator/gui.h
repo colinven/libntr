@@ -4,12 +4,6 @@
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 
-#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
-#define CIMGUI_USE_SDL2
-#define CIMGUI_USE_OPENGL3
-#include <simulator/gui/cimgui.h>
-#include <simulator/gui/cimgui_impl.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif

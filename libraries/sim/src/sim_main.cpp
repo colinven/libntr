@@ -625,7 +625,7 @@ void *SIM_RenderInit(void *arg) {
   SDL_GL_SwapWindow(window);
 
   // Setup ImGui
-  SIM_GUI_Init(window, context);
+  //SIM_GUI_Init(window, context);
 
   clock_gettime(CLOCK_MONOTONIC, &s_SIM_lastFrameEnd);
 
@@ -971,7 +971,7 @@ static void HandleJoystickKeyDown(int aKey) {
 #ifdef SDK_BUILD_NX
   else if (aKey == 8) {
     // Left trigger on NX toggles GUI
-    SIM_GUI_Toggle();
+    //SIM_GUI_Toggle();
   }
 #endif
 }
@@ -1140,7 +1140,7 @@ void *SIM_Render(void *arg) {
     }
 
     while (SDL_PollEvent(&Event)) {
-      SIM_GUI_ProcessEvent(&Event);
+      //SIM_GUI_ProcessEvent(&Event);
       if (Event.type == SDL_WINDOWEVENT) {
         switch (Event.window.event) {
         case SDL_WINDOWEVENT_CLOSE:
@@ -1190,7 +1190,7 @@ void *SIM_Render(void *arg) {
           s_reg_PAD_KEYINPUT = s_reg_PAD_KEYINPUT & 0b1111111111111011;
         } else if (keyRead == s_SIM_config.padSettings.guiKey) {
           // Toggle Debug GUI
-          SIM_GUI_Toggle();
+          //SIM_GUI_Toggle();
         }
       }
       if (Event.type == SDL_KEYUP) {
@@ -1319,8 +1319,8 @@ void *SIM_Render(void *arg) {
       s_tpData.touch = 0;
     }
 
-    SIM_GUI_NewFrame();
-    SIM_GUI_Main();
+    //SIM_GUI_NewFrame();
+    //SIM_GUI_Main();
 
     memset(bgtex, 0,
            sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2);
@@ -1355,7 +1355,7 @@ void *SIM_Render(void *arg) {
     s_HW_INTR_CHECK_BUF |= 1;
     *((u32 *)HW_VBLANK_COUNT_BUF) = *((u32 *)HW_VBLANK_COUNT_BUF) + 1;
 
-    SIM_GUI_Render();
+    //SIM_GUI_Render();
 
     // Calculate frametime
     struct timespec curTime;
@@ -1395,7 +1395,7 @@ void *SIM_Render(void *arg) {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
-  } while (SIM_GUI_IsGameLogicPaused());
+  } while (0 /*SIM_GUI_IsGameLogicPaused()*/);
   // Bind 3D Framebuffer & Renderbuffer
   glBindFramebuffer(GL_FRAMEBUFFER, g3FrameBuffer);
   glBindRenderbuffer(GL_RENDERBUFFER, g3RenderBufferId);
