@@ -70,6 +70,8 @@ int SIM_runNitroOSThread(void * thread);
 void * SIM_sndAlarm(void * arg);
 void SIM_u16ToRGB( u16 in, u8 * r, u8 *g, u8 * b );
 SIM_config_type * SIM_GetConfigPtr();
+u64 SIM_GetRenderFrameTime();
+u64 SIM_GetFullFrameTime();
 
 extern GXVRamTex s_SIM_GXVRamTex;
 extern GXVRamTexPltt s_SIM_GXVRamTexPltt;

@@ -40,7 +40,6 @@ extern "C" int NitroSpMain(void *arg);
 #include <math.h>
 #include <time.h>
 
-#include "gui/gui_internal.h"
 #include "screenquads.h"
 
 #ifdef SDK_BUILD_WIN64
@@ -90,7 +89,8 @@ u8 s_SIM_DBG_OAMSenable = 1;
 u8 s_SIM_useWBuffer = 0;
 
 static struct timespec s_SIM_lastFrameEnd;
-u64 s_SIM_frameTime;
+static u64 sRenderFrameTime;
+static u64 sFullFrameTime;
 
 u8 bgtex[4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2];
 u8 bg0tex[4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2];
@@ -1364,7 +1364,7 @@ void *SIM_Render(void *arg) {
     u64 frameNs;
     frameNs = ((curTime.tv_sec - s_SIM_lastFrameEnd.tv_sec) * 1000000000) +
               (curTime.tv_nsec - s_SIM_lastFrameEnd.tv_nsec);
-    s_SIM_frameTime = frameNs;
+    sRenderFrameTime = frameNs;
 
 #ifdef SDK_TRACY_ENABLE
     TracyCZoneEnd(SimRenderZone);
@@ -1383,6 +1383,14 @@ void *SIM_Render(void *arg) {
     }
 
     SDL_GL_SwapWindow(window);
+
+    //Calculate full frametime (after swap)
+    clock_gettime(CLOCK_MONOTONIC, &curTime);
+    frameNs = ((curTime.tv_sec - s_SIM_lastFrameEnd.tv_sec) * 1000000000) +
+              (curTime.tv_nsec - s_SIM_lastFrameEnd.tv_nsec);
+    sFullFrameTime = frameNs;
+
+
     clock_gettime(CLOCK_MONOTONIC, &s_SIM_lastFrameEnd);
 #ifdef SDK_TRACY_ENABLE
     TracyCFrameMark;
@@ -1422,6 +1430,16 @@ void *SIM_Render(void *arg) {
   glFrontFace(GL_CW);
 
   return nullptr;
+}
+
+// Get the rendering time in nanoseconds
+u64 SIM_GetRenderFrameTime() {
+  return sRenderFrameTime;
+}
+
+// Get the full frame time (including vsync wait) in nanoseconds
+u64 SIM_GetFullFrameTime() {
+  return sFullFrameTime;
 }
 
 void SIM_PreRenderVBlank() { SDL_SemPost(vcountVblankSemaphore); }

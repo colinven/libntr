@@ -4,6 +4,8 @@
 namespace SIM::GUI {
 void AppConfigInit();
 void AppConfigMain(bool * openState);
+void AppNetInit();
+void AppNetMain(bool * openState);
 void AppPadInit();
 void AppPadMain(bool * openState);
 

@@ -17,6 +17,19 @@ static constexpr ImVec2 sButtonSize = {100, 20};
 
 static bool sShowAppConfig = false;
 static bool sShowAppPad = false;
+static bool sShowAppNet = false;
+static bool sShowImGuiDemo = false;
+static bool sShowWindowPrjSpecific = false;
+
+void PrjMain(bool *) __attribute__((weak));
+
+void __attribute__((weak)) PrjMain(bool * openState) {
+    ImGui::OpenPopup("Application-Specific GUI");
+    if(ImGui::BeginPopupModal("Application-Specific GUI", openState, ImGuiWindowFlags_Modal | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::Text("No application-specific GUI has been created for this application.");
+        ImGui::EndPopup();
+    }
+}
 
 void Init(SDL_Window * window, SDL_GLContext context) {
     sWindow = window;
@@ -45,8 +58,20 @@ void Main() {
     if(sEnabled) {
         ImGui::Begin("libntr", &sEnabled);
 
+        float renderTimeMs = static_cast<float>(SIM_GetRenderFrameTime()) / 1000000.0f;
+        ImGui::Text("Render time: %.3fms", renderTimeMs);
+
+        float frameTimeMs = static_cast<float>(SIM_GetFullFrameTime()) / 1000000.0f;
+        ImGui::Text("%.0ffps", 1000.0f / frameTimeMs);
+
+
         AppButton("Config", &sShowAppConfig, AppConfigInit, AppConfigMain);
         AppButton("Input", &sShowAppPad, AppPadInit, AppPadMain);
+        AppButton("Multiplayer", &sShowAppNet, AppNetInit, AppNetMain);
+        AppButton("ImGui Demo", &sShowImGuiDemo, nullptr, ImGui::ShowDemoWindow);
+        AppButton("Application", &sShowWindowPrjSpecific, nullptr, PrjMain);
+
+        ImGui::Checkbox("Pause Game Logic", &sPauseGameLogic);
 
         ImGui::End();
     }
