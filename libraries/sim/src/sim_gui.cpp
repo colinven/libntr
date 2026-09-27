@@ -16,6 +16,7 @@ static bool sPauseGameLogic = false;
 static constexpr ImVec2 sButtonSize = {100, 20};
 
 static bool sShowAppConfig = false;
+static bool sShowAppPad = false;
 
 void Init(SDL_Window * window, SDL_GLContext context) {
     sWindow = window;
@@ -45,6 +46,7 @@ void Main() {
         ImGui::Begin("libntr", &sEnabled);
 
         AppButton("Config", &sShowAppConfig, AppConfigInit, AppConfigMain);
+        AppButton("Input", &sShowAppPad, AppPadInit, AppPadMain);
 
         ImGui::End();
     }
