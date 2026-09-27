@@ -44,7 +44,7 @@ void Main() {
     if(sEnabled) {
         ImGui::Begin("libntr", &sEnabled);
 
-        AppButton("Config", &sShowAppConfig, nullptr, AppConfigMain);
+        AppButton("Config", &sShowAppConfig, AppConfigInit, AppConfigMain);
 
         ImGui::End();
     }
