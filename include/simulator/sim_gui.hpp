@@ -13,6 +13,7 @@ void ProcessEvent(SDL_Event * event);
 void Render();
 void Toggle();
 bool IsGameLogicPaused();
+void AppButton(const char * label, bool * state, void (*aInitFunc)(void), void (*aAppFunc)(bool *));
 
 
 

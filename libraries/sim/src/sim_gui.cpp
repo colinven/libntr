@@ -5,6 +5,7 @@
 
 #include "imgui_impl_opengl3.h"
 #include "imgui_impl_sdl2.h"
+#include "gui_internal.hpp"
 
 namespace SIM::GUI {
 static SDL_Window * sWindow;
@@ -12,6 +13,9 @@ static SDL_GLContext sContext;
 static ImGuiContext * sImguiContext;
 static bool sEnabled = false;
 static bool sPauseGameLogic = false;
+static constexpr ImVec2 sButtonSize = {100, 20};
+
+static bool sShowAppConfig = false;
 
 void Init(SDL_Window * window, SDL_GLContext context) {
     sWindow = window;
@@ -39,6 +43,8 @@ void Init(SDL_Window * window, SDL_GLContext context) {
 void Main() {
     if(sEnabled) {
         ImGui::Begin("libntr", &sEnabled);
+
+        AppButton("Config", &sShowAppConfig, nullptr, AppConfigMain);
 
         ImGui::End();
     }
@@ -71,6 +77,24 @@ void Toggle() {
 
 bool IsGameLogicPaused() {
     return sPauseGameLogic;
+}
+
+// Generic button to open another GUI applet
+void AppButton(const char * label, bool * state, void (*initFunc)(void), void (*appFunc)(bool *)) {
+    if(ImGui::Button(label, sButtonSize)) {
+        if(*state) {
+            *state = false;
+        } else {
+            if(initFunc) {
+                initFunc();
+            }
+            *state = true;
+        }
+    }
+
+    if(*state) {
+        appFunc(state);
+    }
 }
 
 }
