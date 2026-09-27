@@ -25,7 +25,8 @@ libsim_srcs = files(
     'sim_main.cpp',
     'sim_net.cpp',
     'sim_screenquads.c',
-    'sim_shaders.cpp'
+    'sim_shaders.cpp',
+    'sim_vars.c'
 )
 
 if(build_target == 'linux' or build_target == 'win64')
