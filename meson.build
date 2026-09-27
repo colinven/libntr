@@ -1,8 +1,7 @@
 project('libntr', 'c', 'cpp', 'nasm',
     default_options: {
         'default_library': 'static',
-        'prefer_static':    false,
-        'cpp_std':          'c++20'
+        'prefer_static':    false
     },
     meson_version: '>=1.3.0',
     version: '4.2.30001',
