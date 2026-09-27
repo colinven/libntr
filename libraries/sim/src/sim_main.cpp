@@ -35,12 +35,11 @@ extern "C" int NitroSpMain(void *arg);
 #include <simulator/simvariables.h>
 #include <simulator/g3_draw.h>
 #include <simulator/g3_handler.h>
-#include <simulator/gui.h>
+#include <simulator/sim_gui.hpp>
 
 #include <math.h>
 #include <time.h>
 
-#include "gui/gui_internal.h"
 #include "screenquads.h"
 
 #ifdef SDK_BUILD_WIN64
@@ -90,7 +89,8 @@ u8 s_SIM_DBG_OAMSenable = 1;
 u8 s_SIM_useWBuffer = 0;
 
 static struct timespec s_SIM_lastFrameEnd;
-u64 s_SIM_frameTime;
+static u64 sRenderFrameTime;
+static u64 sFullFrameTime;
 
 u8 bgtex[4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2];
 u8 bg0tex[4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2];
@@ -625,7 +625,7 @@ void *SIM_RenderInit(void *arg) {
   SDL_GL_SwapWindow(window);
 
   // Setup ImGui
-  SIM_GUI_Init(window, context);
+  SIM::GUI::Init(window, context);
 
   clock_gettime(CLOCK_MONOTONIC, &s_SIM_lastFrameEnd);
 
@@ -971,7 +971,7 @@ static void HandleJoystickKeyDown(int aKey) {
 #ifdef SDK_BUILD_NX
   else if (aKey == 8) {
     // Left trigger on NX toggles GUI
-    SIM_GUI_Toggle();
+    SIM::GUI::Toggle();
   }
 #endif
 }
@@ -1140,7 +1140,8 @@ void *SIM_Render(void *arg) {
     }
 
     while (SDL_PollEvent(&Event)) {
-      SIM_GUI_ProcessEvent(&Event);
+      SIM::GUI::ProcessEvent(&Event);
+
       if (Event.type == SDL_WINDOWEVENT) {
         switch (Event.window.event) {
         case SDL_WINDOWEVENT_CLOSE:
@@ -1190,7 +1191,7 @@ void *SIM_Render(void *arg) {
           s_reg_PAD_KEYINPUT = s_reg_PAD_KEYINPUT & 0b1111111111111011;
         } else if (keyRead == s_SIM_config.padSettings.guiKey) {
           // Toggle Debug GUI
-          SIM_GUI_Toggle();
+          SIM::GUI::Toggle();
         }
       }
       if (Event.type == SDL_KEYUP) {
@@ -1319,8 +1320,8 @@ void *SIM_Render(void *arg) {
       s_tpData.touch = 0;
     }
 
-    SIM_GUI_NewFrame();
-    SIM_GUI_Main();
+    SIM::GUI::NewFrame();
+    SIM::GUI::Main();
 
     memset(bgtex, 0,
            sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2);
@@ -1355,7 +1356,7 @@ void *SIM_Render(void *arg) {
     s_HW_INTR_CHECK_BUF |= 1;
     *((u32 *)HW_VBLANK_COUNT_BUF) = *((u32 *)HW_VBLANK_COUNT_BUF) + 1;
 
-    SIM_GUI_Render();
+    SIM::GUI::Render();
 
     // Calculate frametime
     struct timespec curTime;
@@ -1363,7 +1364,7 @@ void *SIM_Render(void *arg) {
     u64 frameNs;
     frameNs = ((curTime.tv_sec - s_SIM_lastFrameEnd.tv_sec) * 1000000000) +
               (curTime.tv_nsec - s_SIM_lastFrameEnd.tv_nsec);
-    s_SIM_frameTime = frameNs;
+    sRenderFrameTime = frameNs;
 
 #ifdef SDK_TRACY_ENABLE
     TracyCZoneEnd(SimRenderZone);
@@ -1382,6 +1383,14 @@ void *SIM_Render(void *arg) {
     }
 
     SDL_GL_SwapWindow(window);
+
+    //Calculate full frametime (after swap)
+    clock_gettime(CLOCK_MONOTONIC, &curTime);
+    frameNs = ((curTime.tv_sec - s_SIM_lastFrameEnd.tv_sec) * 1000000000) +
+              (curTime.tv_nsec - s_SIM_lastFrameEnd.tv_nsec);
+    sFullFrameTime = frameNs;
+
+
     clock_gettime(CLOCK_MONOTONIC, &s_SIM_lastFrameEnd);
 #ifdef SDK_TRACY_ENABLE
     TracyCFrameMark;
@@ -1395,7 +1404,7 @@ void *SIM_Render(void *arg) {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 
-  } while (SIM_GUI_IsGameLogicPaused());
+  } while (SIM::GUI::IsGameLogicPaused());
   // Bind 3D Framebuffer & Renderbuffer
   glBindFramebuffer(GL_FRAMEBUFFER, g3FrameBuffer);
   glBindRenderbuffer(GL_RENDERBUFFER, g3RenderBufferId);
@@ -1421,6 +1430,16 @@ void *SIM_Render(void *arg) {
   glFrontFace(GL_CW);
 
   return nullptr;
+}
+
+// Get the rendering time in nanoseconds
+u64 SIM_GetRenderFrameTime() {
+  return sRenderFrameTime;
+}
+
+// Get the full frame time (including vsync wait) in nanoseconds
+u64 SIM_GetFullFrameTime() {
+  return sFullFrameTime;
 }
 
 void SIM_PreRenderVBlank() { SDL_SemPost(vcountVblankSemaphore); }
