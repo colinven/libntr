@@ -63,16 +63,12 @@ static void SetJoystickKeyConfig(int& config) {
 static std::string GetJoystickKeyName(int key) {
     std::string ret = "";
     if(key & SIM_CONFIG_JOY_HAT_MASK) {
-        //ret << "Hat " << key & ~(SIM_CONFIG_JOY_HAT_MASK);
         ret = std::format("Hat {}", key & ~(SIM_CONFIG_JOY_HAT_MASK));
     } else if(key & SIM_CONFIG_JOY_AXIS_MINUS_MASK) {
-        //ret << Axis << key & ~(SIM_CONFIG_JOY_AXIS_MINUS_MASK) << "-";
         ret = std::format("Axis {}-", key & ~(SIM_CONFIG_JOY_AXIS_MINUS_MASK));
     } else if(key & SIM_CONFIG_JOY_AXIS_PLUS_MASK){
-        //ret << "Axis" << key & ~(SIM_CONFIG_JOY_AXIS_PLUS_MASK) << "+";
         ret = std::format("Axis {}+", key & ~(SIM_CONFIG_JOY_AXIS_PLUS_MASK));
     } else {
-        //ret << key;
         ret = std::format("{}", key);
     }
 
