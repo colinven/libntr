@@ -58,6 +58,8 @@ void Main() {
     if(sEnabled) {
         ImGui::Begin("libntr", &sEnabled);
 
+        ImGui::Text("Git rev: %s", SIM_GetLibntrGitHash());
+
         float renderTimeMs = static_cast<float>(SIM_GetRenderFrameTime()) / 1000000.0f;
         ImGui::Text("Render time: %.3fms", renderTimeMs);
 

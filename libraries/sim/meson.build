@@ -100,7 +100,7 @@ libsim = library('sim',
     pic: build_target == 'nx',
     c_args: libsim_args,
     cpp_args: [libsim_args, '-O2', '-std=c++20'],
-    sources: [libsim_srcs, fx_const_h],
+    sources: [libsim_srcs, fx_const_h, git_info_h],
     dependencies: libsim_dependencies,
     native: (build_target == 'linux' or build_target == 'win64')
 )

@@ -60,6 +60,7 @@ extern "C" int NitroSpMain(void *arg);
 #endif
 
 #include "sim_g2.h"
+#include "git_info.h"
 
 // Simulator configuration
 SIM_config_type s_SIM_config = {};
@@ -1453,6 +1454,14 @@ void SIM_PostRenderVBlank() {
   // Reset Vcount
   s_reg_GX_VCOUNT = 0;
   SDL_SemPost(vcountResetSemaphore);
+}
+
+const char * SIM_GetLibntrGitHash() {
+  return SIM_LIBNTR_GIT_HASH;
+}
+
+const char * SIM_GetProjectGitHash() {
+  return SIM_PROJECT_GIT_HASH;
 }
 
 #ifdef _WIN32
