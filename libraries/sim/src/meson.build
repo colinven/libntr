@@ -9,6 +9,7 @@ libsim_srcs = files(
     'imgui/imgui_impl_sdl2.cpp',
     'imgui/imgui_tables.cpp',
     'imgui/imgui_widgets.cpp',
+    'ImGuiFileDialog/ImGuiFileDialog.cpp',
     'g3_draw.cpp',
     'g3_handler.cpp',
     'queue.c',
