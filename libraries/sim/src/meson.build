@@ -25,6 +25,7 @@ libsim_srcs = files(
     'sim_gui_pad.cpp',
     'sim_main.cpp',
     'sim_net.cpp',
+    'sim_RomExtractor.cpp',
     'sim_screenquads.c',
     'sim_shaders.cpp',
     'sim_vars.c'

@@ -7,6 +7,8 @@
 #include "imgui_impl_sdl2.h"
 #include "gui_internal.hpp"
 
+#include "ImGuiFileDialog.h"
+
 namespace SIM::GUI {
 static SDL_Window * sWindow;
 static SDL_GLContext sContext;
@@ -20,6 +22,8 @@ static bool sShowAppPad = false;
 static bool sShowAppNet = false;
 static bool sShowImGuiDemo = false;
 static bool sShowWindowPrjSpecific = false;
+
+static std::function<void(std::string)> sFileDialogCallback = nullptr;
 
 void PrjMain(bool *) __attribute__((weak));
 
@@ -73,10 +77,33 @@ void Main() {
         AppButton("ImGui Demo", &sShowImGuiDemo, nullptr, ImGui::ShowDemoWindow);
         AppButton("Application", &sShowWindowPrjSpecific, nullptr, PrjMain);
 
+        if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey")) {
+          if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+            std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
+            std::string filePath = ImGuiFileDialog::Instance()->GetCurrentPath();
+
+            // FilePathName will be the full path to the file selected
+            if(sFileDialogCallback) {
+                sFileDialogCallback(filePathName);
+            }
+          }
+
+          // close
+          ImGuiFileDialog::Instance()->Close();
+        }
+
         ImGui::Checkbox("Pause Game Logic", &sPauseGameLogic);
 
         ImGui::End();
     }
+}
+
+void OpenFileDialog(std::function<void(std::string)> callback) {
+    sFileDialogCallback = callback;
+
+    IGFD::FileDialogConfig config;
+    	config.path = ".";
+    ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".nds,.srl", config);
 }
 
 void NewFrame() {
@@ -102,6 +129,10 @@ void Toggle() {
     } else {
         sEnabled = true;
     }
+}
+
+void Enable() {
+    sEnabled = true;
 }
 
 bool IsGameLogicPaused() {

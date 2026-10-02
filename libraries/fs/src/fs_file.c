@@ -19,6 +19,7 @@
 #ifdef SDK_PORT
 #include <string.h>
 #include <SDL2/SDL.h>
+#include <simulator/sim_RomExtractor.h>
 #endif
 
 #if SDK_VERSION_MAJOR == 5
@@ -540,8 +541,12 @@ BOOL FS_OpenFile (FSFile *p_file, const char *path)
 	else
 	{
         char messageBuf[200] = {0};
-        snprintf(messageBuf, 199, "Failed to open file '%s'. Please extract your ROM into the same directory as the executable.", path);
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "FS Error", messageBuf, NULL);
+        snprintf(messageBuf, 199, "Failed to open file '%s'. After selecting 'OK', a new dialog box will open, allowing selection of a ROM to extract.", path);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "FS - ROM Extraction Required", messageBuf, NULL);
+
+        SIM_ShowRomExtractionDialog();
+
+        // TODO: try again, because the ROM will be extracted at this point
         return FALSE;
 	}
 	#else
