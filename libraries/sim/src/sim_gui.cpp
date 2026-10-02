@@ -77,7 +77,7 @@ void Main() {
         AppButton("ImGui Demo", &sShowImGuiDemo, nullptr, ImGui::ShowDemoWindow);
         AppButton("Application", &sShowWindowPrjSpecific, nullptr, PrjMain);
 
-        if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey")) {
+        if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey", ImGuiWindowFlags_NoCollapse, ImVec2(200, 200))) {
           if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
             std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
             std::string filePath = ImGuiFileDialog::Instance()->GetCurrentPath();
@@ -103,7 +103,7 @@ void OpenFileDialog(std::function<void(std::string)> callback) {
 
     IGFD::FileDialogConfig config;
     	config.path = ".";
-    ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".nds,.srl", config);
+    ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Select NDS ROM", ".nds,.srl", config);
 }
 
 void NewFrame() {

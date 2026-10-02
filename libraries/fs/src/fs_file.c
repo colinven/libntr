@@ -43,6 +43,8 @@ const char *fsi_assert_arc_unloaded = "archive is still now loaded";
 const char *fsi_assert_arc_not_rom = "cannot modify \"rom\" archive";
 #endif
 
+#define FS_FILE_OPEN_DEBUG FALSE
+
 static BOOL is_init = FALSE;
 
 void FS_Init (u32 default_dma_no)
@@ -540,14 +542,19 @@ BOOL FS_OpenFile (FSFile *p_file, const char *path)
 	}
 	else
 	{
+        #if FS_FILE_OPEN_DEBUG
         char messageBuf[200] = {0};
-        snprintf(messageBuf, 199, "Failed to open file '%s'. After selecting 'OK', a new dialog box will open, allowing selection of a ROM to extract.", path);
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "FS - ROM Extraction Required", messageBuf, NULL);
+        snprintf(messageBuf, 199, "Failed to open file '%s'.", path);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "ROM Extraction Required", messageBuf, NULL);
+        #else
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "ROM Extraction Required", "ROM filesystem is missing. Select 'OK' and choose a NDS ROM file in the next step.", NULL);
+        #endif
 
         SIM_ShowRomExtractionDialog();
 
-        // TODO: try again, because the ROM will be extracted at this point
-        return FALSE;
+        // try again, because the ROM should be extracted at this point
+        // yes, this is recursive, so if the user is dumb enough to keep extracting the wrong ROM and does this enough times, it will crash
+        return FS_OpenFile(p_file, path);
 	}
 	#else
 	return (FS_ConvertPathToFileID(&id, path) && FS_OpenFileFast(p_file, id));

@@ -2,6 +2,7 @@ libsim_srcs = files(
     'blip-buf/blip_buf.c',
     'config/ini.c',
     'config/sim_config.c',
+    'fireflower/nds-extract.cpp',
     'imgui/imgui.cpp',
     'imgui/imgui_demo.cpp',
     'imgui/imgui_draw.cpp',
