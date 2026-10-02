@@ -4,6 +4,7 @@ extern "C" int NitroSpMain(void *arg);
 #define _POSIX_C_SOURCE 199309L
 
 #include <string>
+#include <filesystem>
 #include <pthread.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_events.h>
@@ -1473,7 +1474,27 @@ int APIENTRY WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline,
 }
 #endif
 
+// The game loads its files (firmware.bin, save.bin, the extracted ROM, ...)
+// from the current folder. An AppImage can be started from any folder, so
+// move to the folder that holds the .AppImage file, where those files live.
+// The AppImage runtime puts the path of the .AppImage file in $APPIMAGE.
+static void SIM_ChangeToAppImageFolder() {
+  const char *appImagePath = getenv("APPIMAGE");
+  if (appImagePath == NULL) {
+    return;
+  }
+
+  std::error_code err;
+  std::filesystem::current_path(std::filesystem::path(appImagePath).parent_path(), err);
+  if (err) {
+    fprintf(stderr, "Could not change to the AppImage folder: %s\n", err.message().c_str());
+  }
+}
+
 int main(int argc, char *argv[]) {
+  // Must run first: everything below reads or writes files in the current folder
+  SIM_ChangeToAppImageFolder();
+
 #ifdef SDK_BUILD_NX
   // Start up libnx sockets
   socketInitializeDefault();
