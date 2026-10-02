@@ -23,6 +23,15 @@ namespace fs = std::filesystem;
 				std::cout << DWARNING << "File " << outputPath.string() << " already exists" << std::endl; \
 			}
 
+
+static constexpr auto Separator = 
+#ifdef SDK_BUILD_WIN64
+"\\"
+#else
+"/"
+#endif
+;
+
 constexpr unsigned oneGB = 1073741824U;
 
 typedef std::vector<unsigned char> NitroROM;
@@ -89,7 +98,7 @@ void dumpFntTree(const NitroROM& rom, const NDSDirectory& dir, const fs::path& p
 
 	for (unsigned i = 0; i < dir.files.size(); i++) {
 
-		fs::path fp = p.string() + fs::path::preferred_separator + dir.files[i];
+		fs::path fp = p.string() + Separator + dir.files[i];
 
 		if(!fs::exists(fp)){
 
@@ -122,7 +131,7 @@ void dumpFntTree(const NitroROM& rom, const NDSDirectory& dir, const fs::path& p
 
 	for (unsigned i = 0; i < dir.dirs.size(); i++) {
 
-		fs::path sp = p.string() + fs::path::preferred_separator + dir.dirs[i].dirName;
+		fs::path sp = p.string() + Separator + dir.dirs[i].dirName;
 
 		if(!fs::exists(sp) || (fs::exists(sp) && !fs::is_directory(sp))){
 
@@ -165,9 +174,9 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	fs::path ndsInputPath(ndsFilePath);
 	fs::path fsOutputPath = fs::current_path();
 	
-	fs::path ov9Path = fsOutputPath.string() + fs::path::preferred_separator +"overlay9";
-	fs::path ov7Path = fsOutputPath.string() + fs::path::preferred_separator + "overlay7";
-	fs::path dataPath = fsOutputPath.string() + fs::path::preferred_separator;
+	fs::path ov9Path = fsOutputPath.string() + Separator +"overlay9";
+	fs::path ov7Path = fsOutputPath.string() + Separator + "overlay7";
+	fs::path dataPath = fsOutputPath.string() + Separator;
 	unsigned ndsFileSize = fs::file_size(ndsInputPath);
 
 	if (!fs::exists(ndsInputPath) || !fs::is_regular_file(ndsInputPath)) {
@@ -281,7 +290,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "header.bin";
+	outputPath = fsOutputPath.string() + Separator + "header.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -300,7 +309,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "arm9.bin";
+	outputPath = fsOutputPath.string() + Separator + "arm9.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -320,7 +329,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "arm7.bin";
+	outputPath = fsOutputPath.string() + Separator + "arm7.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -339,7 +348,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "arm9ovt.bin";
+	outputPath = fsOutputPath.string() + Separator + "arm9ovt.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -358,7 +367,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "arm7ovt.bin";
+	outputPath = fsOutputPath.string() + Separator + "arm7ovt.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -377,7 +386,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "banner.bin";
+	outputPath = fsOutputPath.string() + Separator + "banner.bin";
 
 
 	if (!fs::exists(outputPath)) {
@@ -427,7 +436,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 	
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "fnt.bin";
+	outputPath = fsOutputPath.string() + Separator + "fnt.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -446,7 +455,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "fat.bin";
+	outputPath = fsOutputPath.string() + Separator + "fat.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -465,7 +474,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 	}
 
 
-	outputPath = fsOutputPath.string() + fs::path::preferred_separator + "rsasig.bin";
+	outputPath = fsOutputPath.string() + Separator + "rsasig.bin";
 
 	if (!fs::exists(outputPath)) {
 
@@ -494,7 +503,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 			unsigned ovStart = urom[(fatOffset + fid * 8) / 4];
 			unsigned ovSize = urom[(fatOffset + fid * 8 + 4) / 4] - ovStart;
 			
-			outputPath = ov9Path.string() + fs::path::preferred_separator + "overlay9_" + std::to_string(urom[(ovt9Offset + i * 32) / 4]) + ".bin";
+			outputPath = ov9Path.string() + Separator + "overlay9_" + std::to_string(urom[(ovt9Offset + i * 32) / 4]) + ".bin";
 
 			if (!fs::exists(outputPath)) {
 
@@ -527,7 +536,7 @@ int SIM_NDSExtract(std::string ndsFilePath){
 			unsigned ovStart = urom[(fatOffset + fid * 8) / 4];
 			unsigned ovSize = urom[(fatOffset + fid * 8 + 4) / 4] - ovStart;
 
-			outputPath = ov7Path.string() + fs::path::preferred_separator + "overlay7_" + std::to_string(urom[(ovt7Offset + i * 32) / 4]) + ".bin";
+			outputPath = ov7Path.string() + Separator + "overlay7_" + std::to_string(urom[(ovt7Offset + i * 32) / 4]) + ".bin";
 
 			if (!fs::exists(outputPath)) {
 
