@@ -36,6 +36,9 @@ void G3SIM_DrawCleanUp();
 void G3SIM_DrawInit();
 void G3SIM_FlushArray();
 void G3SIM_DrawItems();
+#ifdef SDK_TRACY_ENABLE
+void G3SIM_DrawStatsEndFrame();
+#endif
 
 #ifdef __cplusplus
 }

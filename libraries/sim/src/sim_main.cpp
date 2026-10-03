@@ -1384,7 +1384,13 @@ void *SIM_Render(void *arg) {
       }
     }
 
+    #ifdef SDK_TRACY_ENABLE
+    TracyCZoneN(SwapZone, "SwapWindow", 1);
+    #endif
     SDL_GL_SwapWindow(window);
+    #ifdef SDK_TRACY_ENABLE
+    TracyCZoneEnd(SwapZone);
+    #endif
 
     //Calculate full frametime (after swap)
     clock_gettime(CLOCK_MONOTONIC, &curTime);
@@ -1396,6 +1402,7 @@ void *SIM_Render(void *arg) {
     clock_gettime(CLOCK_MONOTONIC, &s_SIM_lastFrameEnd);
 #ifdef SDK_TRACY_ENABLE
     TracyCFrameMark;
+    G3SIM_DrawStatsEndFrame();
 #endif
 
     s_numG3CommandsThisFrame = 0;

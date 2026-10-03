@@ -18,6 +18,18 @@
 
 #ifdef SDK_TRACY_ENABLE
 #include "tracy/TracyC.h"
+
+// Per-frame counters, shown as plots in Tracy (see G3SIM_DrawStatsEndFrame)
+static u32 sStatFlushes;
+static u32 sStatTexUploads;
+static u32 sStatTexUploadBytes;
+static u32 sStatDraws;
+static u32 sStatVertexUploadBytes;
+static u32 sStatTranslucentItems;
+static u32 sStatTexCacheMisses;
+#define G3_STAT_ADD(stat, n) ((stat) += (n))
+#else
+#define G3_STAT_ADD(stat, n) ((void)0)
 #endif
 
 #define G3_DRAW_MAX_ITEMS 1000
@@ -131,8 +143,16 @@ void G3SIM_DrawArray()
 	{
 		glBindVertexArray(s_G3DrawVertexArray);
 		glBindBuffer(GL_ARRAY_BUFFER, s_G3DrawVertexBuffer);
+		#ifdef SDK_TRACY_ENABLE
+		TracyCZoneN(DrawArrayZone, "G3 vertex upload + draw", 1);
+		#endif
 		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(G3SIM_Vertex_t) * s_G3DrawCurVertIdx, s_G3DrawVerts);
 		glDrawArrays(GL_TRIANGLES,0,s_G3DrawCurVertIdx);
+		G3_STAT_ADD(sStatDraws, 1);
+		G3_STAT_ADD(sStatVertexUploadBytes, sizeof(G3SIM_Vertex_t) * s_G3DrawCurVertIdx);
+		#ifdef SDK_TRACY_ENABLE
+		TracyCZoneEnd(DrawArrayZone);
+		#endif
 	}
 	return;
 }
@@ -176,6 +196,7 @@ void G3SIM_FlushArray()
 	#ifdef SDK_TRACY_ENABLE
 	TracyCZone(FlushArrayZone, 1);
 	#endif
+	G3_STAT_ADD(sStatFlushes, 1);
 
 	u8 * texBuf = nullptr;
 
@@ -226,6 +247,7 @@ void G3SIM_FlushArray()
 			// Texture is in the cache
 			texBuf = sTextureCache[finalCRC];
 		} else {
+			G3_STAT_ADD(sStatTexCacheMisses, 1);
 			//Convert the DS texture data into a format opengl can understand
 			u8 * outTexBuf = new u8[4*s_texImageParam.textureSSize * s_texImageParam.textureTSize];
 			memset((void*)outTexBuf, 0, 4*s_texImageParam.textureSSize * s_texImageParam.textureTSize);
@@ -260,7 +282,15 @@ void G3SIM_FlushArray()
 			texBuf = outTexBuf;
 		}
 
+		#ifdef SDK_TRACY_ENABLE
+		TracyCZoneN(TexUploadZone, "G3 texture upload", 1);
+		#endif
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_texImageParam.textureSSize, s_texImageParam.textureTSize, GL_RGBA, GL_UNSIGNED_BYTE, (void *)texBuf);
+		G3_STAT_ADD(sStatTexUploads, 1);
+		G3_STAT_ADD(sStatTexUploadBytes, 4 * s_texImageParam.textureSSize * s_texImageParam.textureTSize);
+		#ifdef SDK_TRACY_ENABLE
+		TracyCZoneEnd(TexUploadZone);
+		#endif
 
 		GLint texUnitLoc = glGetUniformLocation(g3shaderProgramID, "myTexture");
 		//set texture 0 in the shader
@@ -346,7 +376,10 @@ void G3SIM_FlushArray()
         	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, s_texImageParam.textureSSize, s_texImageParam.textureTSize, 0,
         	         GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_texImageParam.textureSSize, s_texImageParam.textureTSize, GL_RGBA, GL_UNSIGNED_BYTE, (void *)texBuf);
+			G3_STAT_ADD(sStatTexUploads, 1);
+			G3_STAT_ADD(sStatTexUploadBytes, 4 * s_texImageParam.textureSSize * s_texImageParam.textureTSize);
 		}
+		G3_STAT_ADD(sStatTranslucentItems, 1);
 
 		//Copy over the polygonattr
 		memcpy(&item->polygonAttr, &s_curPolygonAttr, sizeof(G3SIM_PolygonAttr_t));
@@ -409,6 +442,8 @@ void G3SIM_DrawItems()
 		glBindBuffer(GL_ARRAY_BUFFER, s_G3DrawVertexBuffer);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(G3SIM_Vertex_t) * item->vertsCount, item->verts);
 		glDrawArrays(GL_TRIANGLES,0, item->vertsCount);
+		G3_STAT_ADD(sStatDraws, 1);
+		G3_STAT_ADD(sStatVertexUploadBytes, sizeof(G3SIM_Vertex_t) * item->vertsCount);
 
 		free(item->verts);
 
@@ -418,3 +453,23 @@ void G3SIM_DrawItems()
 	}
 	s_G3DrawItemListCount = 0;
 }
+#ifdef SDK_TRACY_ENABLE
+// Send this frame's counters to Tracy and reset them. Call once per frame.
+void G3SIM_DrawStatsEndFrame()
+{
+	TracyCPlot("G3 flushes", sStatFlushes);
+	TracyCPlot("G3 draws", sStatDraws);
+	TracyCPlot("G3 texture uploads", sStatTexUploads);
+	TracyCPlot("G3 texture upload KB", sStatTexUploadBytes / 1024.0);
+	TracyCPlot("G3 vertex upload KB", sStatVertexUploadBytes / 1024.0);
+	TracyCPlot("G3 translucent items", sStatTranslucentItems);
+	TracyCPlot("G3 texture cache misses", sStatTexCacheMisses);
+	sStatFlushes = 0;
+	sStatTexUploads = 0;
+	sStatTexUploadBytes = 0;
+	sStatDraws = 0;
+	sStatVertexUploadBytes = 0;
+	sStatTranslucentItems = 0;
+	sStatTexCacheMisses = 0;
+}
+#endif
