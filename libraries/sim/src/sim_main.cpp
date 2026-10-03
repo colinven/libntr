@@ -1475,25 +1475,42 @@ int APIENTRY WinMain(HINSTANCE hInst, HINSTANCE hInstPrev, PSTR cmdline,
 #endif
 
 // The game loads its files (firmware.bin, save.bin, the extracted ROM, ...)
-// from the current folder. An AppImage can be started from any folder, so
-// move to the folder that holds the .AppImage file, where those files live.
-// The AppImage runtime puts the path of the .AppImage file in $APPIMAGE.
-static void SIM_ChangeToAppImageFolder() {
+// from the current folder. The game can be started from any folder (a
+// shortcut, a terminal, WSL), so move to the folder where those files live:
+// - AppImage: the folder that holds the .AppImage file. The AppImage runtime
+//   puts its path in $APPIMAGE. (The executable itself runs from a temporary
+//   mount, so its own folder is the wrong one.)
+// - Otherwise: the folder that holds the executable.
+// The Switch build reads its files differently, so it is left alone.
+static void SIM_ChangeToGameFolder() {
+#ifndef SDK_BUILD_NX
+  std::filesystem::path gameFolder;
+
   const char *appImagePath = getenv("APPIMAGE");
-  if (appImagePath == NULL) {
-    return;
+  if (appImagePath != NULL) {
+    gameFolder = std::filesystem::path(appImagePath).parent_path();
+  } else {
+    // SDL_GetBasePath returns a UTF-8 path that ends with a separator
+    char *basePath = SDL_GetBasePath();
+    if (basePath == NULL) {
+      fprintf(stderr, "Could not find the game folder: %s\n", SDL_GetError());
+      return;
+    }
+    gameFolder = std::filesystem::path(reinterpret_cast<const char8_t *>(basePath));
+    SDL_free(basePath);
   }
 
   std::error_code err;
-  std::filesystem::current_path(std::filesystem::path(appImagePath).parent_path(), err);
+  std::filesystem::current_path(gameFolder, err);
   if (err) {
-    fprintf(stderr, "Could not change to the AppImage folder: %s\n", err.message().c_str());
+    fprintf(stderr, "Could not change to the game folder: %s\n", err.message().c_str());
   }
+#endif
 }
 
 int main(int argc, char *argv[]) {
   // Must run first: everything below reads or writes files in the current folder
-  SIM_ChangeToAppImageFolder();
+  SIM_ChangeToGameFolder();
 
 #ifdef SDK_BUILD_NX
   // Start up libnx sockets
