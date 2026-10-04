@@ -36,9 +36,40 @@ static u32 sStatTexCacheMisses;
 
 #define getbit(x,n) ( ( (x) >> (n) ) & 1 )
 
+// One converted texture on the GPU, shared by every draw that uses it
+typedef struct {
+	GLuint textureId;
+	u32 lastUsedFrame;
+	u8 mirroredS; // Current GL_TEXTURE_WRAP_S is GL_MIRRORED_REPEAT (1) or GL_REPEAT (0)
+	u8 mirroredT; // Same for GL_TEXTURE_WRAP_T
+} g3_cached_texture_t;
+
+// Everything that changes how a texture looks. Two textures are the same
+// only if all of these match.
+struct G3TextureKey {
+	u32 textureCRC;
+	u32 paletteCRC;
+	u16 sSize;
+	u16 tSize;
+	u32 format;
+
+	bool operator==(const G3TextureKey &other) const {
+		return textureCRC == other.textureCRC && paletteCRC == other.paletteCRC
+			&& sSize == other.sSize && tSize == other.tSize && format == other.format;
+	}
+};
+
+struct G3TextureKeyHash {
+	size_t operator()(const G3TextureKey &key) const {
+		u64 h = ((u64)key.textureCRC << 32) | key.paletteCRC;
+		h ^= ((u64)key.sSize << 48) ^ ((u64)key.tSize << 32) ^ key.format;
+		return std::hash<u64>{}(h);
+	}
+};
+
 typedef struct {
 	float zIdx;
-	GLuint textureId;
+	g3_cached_texture_t * texture; // NULL when the item has no texture
 	G3SIM_PolygonAttr_t polygonAttr;
 	G3SIM_TexImageParam_t texImageParam;
 	G3SIM_Vertex_t * verts;
@@ -47,8 +78,19 @@ typedef struct {
 
 G3SIM_Vertex_t s_G3DrawVerts[G3_DRAW_MAX_VERTS];
 
-// Texture cache based on the CRC of the texture and palette
-std::unordered_map<u64, u8*> sTextureCache;
+// Texture cache. Each different texture is converted and uploaded to the
+// GPU once, then reused by binding it. Uploading again into a texture the
+// GPU may still be drawing with makes the driver wait, which used to be the
+// biggest cost per frame in busy scenes.
+static std::unordered_map<G3TextureKey, g3_cached_texture_t, G3TextureKeyHash> sTextureCache;
+
+// Counts frames, to know which textures have not been used for a while
+static u32 sDrawFrame = 0;
+
+// Above this many cached textures, delete the ones not used recently
+#define G3_TEXTURE_CACHE_MAX_COUNT 2048
+// A texture used within this many frames is never deleted
+#define G3_TEXTURE_CACHE_KEEP_FRAMES 600
 
 //The item list is used for drawing translucent things sorted by Z position
 static g3_draw_item_t s_G3DrawItemList[G3_DRAW_MAX_ITEMS];
@@ -65,7 +107,6 @@ extern u8 s_SIM_g3tex[4*1024*1024];
 extern GXVRamTex s_SIM_GXVRamTex;
 extern GXVRamTexPltt s_SIM_GXVRamTexPltt;
 
-extern GLuint SIM_GetTextureID();
 
 static void* getTextureVramBank();
 static void* getTexPlttVramBank();
@@ -186,6 +227,134 @@ void G3SIM_DrawInit()
 	glDisableVertexAttribArray(2);
 }
 
+// Find the current texture (s_texImageParam) in the cache, converting and
+// uploading it first if it is not there yet. Leaves it bound to GL_TEXTURE0.
+static g3_cached_texture_t * G3SIM_GetCurrentTexture()
+{
+	u8 * vramTex = (u8*)(getTextureVramBank() + s_texImageParam.textureOffset);
+	u8 * vramPltt = (u8*)(getTexPlttVramBank() + s_texPlttBase);
+	u16 * colorAddr = (u16*)vramPltt;
+	u32 sSize = s_texImageParam.textureSSize;
+	u32 tSize = s_texImageParam.textureTSize;
+
+	u32 vramTexBufSize = 0;
+	if(s_texImageParam.textureFormat == GX_TEXFMT_PLTT4) {
+		vramTexBufSize = (sSize * tSize) >> 2;
+	} else if(s_texImageParam.textureFormat == GX_TEXFMT_PLTT16) {
+		vramTexBufSize = (sSize * tSize) >> 1;
+	} else if(s_texImageParam.textureFormat == GX_TEXFMT_DIRECT) {
+		vramTexBufSize = (sSize * tSize) * 2; // 16 bits per pixel
+	} else {
+		vramTexBufSize = (sSize * tSize);
+	}
+
+	G3TextureKey key;
+	key.textureCRC = SIM_crc32buf(vramTex, vramTexBufSize);
+	// Direct color textures do not use a palette
+	key.paletteCRC = (s_texImageParam.textureFormat == GX_TEXFMT_DIRECT) ? 0 : SIM_crc32buf(vramPltt, 512);
+	key.sSize = sSize;
+	key.tSize = tSize;
+	key.format = s_texImageParam.textureFormat;
+
+	glActiveTexture(GL_TEXTURE0);
+
+	auto found = sTextureCache.find(key);
+	if(found != sTextureCache.end()) {
+		found->second.lastUsedFrame = sDrawFrame;
+		glBindTexture(GL_TEXTURE_2D, found->second.textureId);
+		return &found->second;
+	}
+
+	G3_STAT_ADD(sStatTexCacheMisses, 1);
+
+	//Convert the DS texture data into a format opengl can understand
+	u8 * outTexBuf = new u8[4 * sSize * tSize];
+	memset((void*)outTexBuf, 0, 4 * sSize * tSize);
+
+	switch( s_texImageParam.textureFormat ){
+		case GX_TEXFMT_A3I5:
+			G3SIM_DecodeTexA3I5(vramTex, colorAddr, outTexBuf, sSize, tSize);
+			break;
+		case GX_TEXFMT_PLTT4:
+			G3SIM_DecodeTex4(vramTex, colorAddr, outTexBuf, sSize, tSize);
+			break;
+		case GX_TEXFMT_PLTT16:
+			G3SIM_DecodeTex16(vramTex, colorAddr, outTexBuf, sSize, tSize);
+			break;
+		case GX_TEXFMT_PLTT256:
+			G3SIM_DecodeTex256(vramTex, colorAddr, outTexBuf, sSize, tSize);
+			break;
+		case GX_TEXFMT_COMP4x4:
+			SIM_assert_always();
+			//TODO
+			break;
+		case GX_TEXFMT_A5I3:
+			G3SIM_DecodeTexA5I3(vramTex, colorAddr, outTexBuf, sSize, tSize);
+			break;
+		case GX_TEXFMT_DIRECT:
+			G3SIM_DecodeTexDirect(vramTex, outTexBuf, sSize, tSize);
+			break;
+	}
+
+	g3_cached_texture_t texture;
+	texture.lastUsedFrame = sDrawFrame;
+	texture.mirroredS = 0;
+	texture.mirroredT = 0;
+
+	#ifdef SDK_TRACY_ENABLE
+	TracyCZoneN(TexUploadZone, "G3 texture upload", 1);
+	#endif
+	glGenTextures(1, &texture.textureId);
+	glBindTexture(GL_TEXTURE_2D, texture.textureId);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, sSize, tSize, 0, GL_RGBA, GL_UNSIGNED_BYTE, (void *)outTexBuf);
+	G3_STAT_ADD(sStatTexUploads, 1);
+	G3_STAT_ADD(sStatTexUploadBytes, 4 * sSize * tSize);
+	#ifdef SDK_TRACY_ENABLE
+	TracyCZoneEnd(TexUploadZone);
+	#endif
+
+	delete[] outTexBuf;
+
+	return &(sTextureCache[key] = texture);
+}
+
+// Set the wrap mode of a bound cached texture, only when it changes
+static void G3SIM_SetTextureWrap(g3_cached_texture_t * texture, BOOL flipS, BOOL flipT)
+{
+	u8 mirroredS = flipS ? 1 : 0;
+	u8 mirroredT = flipT ? 1 : 0;
+
+	if(texture->mirroredS != mirroredS) {
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, mirroredS ? GL_MIRRORED_REPEAT : GL_REPEAT);
+		texture->mirroredS = mirroredS;
+	}
+	if(texture->mirroredT != mirroredT) {
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, mirroredT ? GL_MIRRORED_REPEAT : GL_REPEAT);
+		texture->mirroredT = mirroredT;
+	}
+}
+
+// Delete textures that have not been used for a while, once the cache is big
+static void G3SIM_TrimTextureCache()
+{
+	if(sTextureCache.size() <= G3_TEXTURE_CACHE_MAX_COUNT) {
+		return;
+	}
+
+	for(auto it = sTextureCache.begin(); it != sTextureCache.end(); ) {
+		if(sDrawFrame - it->second.lastUsedFrame > G3_TEXTURE_CACHE_KEEP_FRAMES) {
+			glDeleteTextures(1, &it->second.textureId);
+			it = sTextureCache.erase(it);
+		} else {
+			++it;
+		}
+	}
+}
+
 void G3SIM_FlushArray()
 {
 	if(s_G3DrawCurVertIdx == 0) {
@@ -198,99 +367,12 @@ void G3SIM_FlushArray()
 	#endif
 	G3_STAT_ADD(sStatFlushes, 1);
 
-	u8 * texBuf = nullptr;
+	g3_cached_texture_t * texture = nullptr;
 
 	if( s_texImageParam.textureFormat != GX_TEXFMT_NONE )
 	{
-		GLuint g3TextureId;
-		g3TextureId = SIM_GetTextureID();
-		
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture( GL_TEXTURE_2D, g3TextureId );
-
-		if(s_texImageParam.flipS)
-		{
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
-		} else {
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		}
-
-		if(s_texImageParam.flipT)
-		{
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
-		} else {
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-		}
-
-		u8 * vramTex = (u8*)(getTextureVramBank() + s_texImageParam.textureOffset);
-		u8 * vramPltt = (u8*)(getTexPlttVramBank() + s_texPlttBase);
-		u16 * colorAddr = (u16*)vramPltt;
-
-		//Calculate the texture + palette CRC
-		u32 paletteCRC = SIM_crc32buf(vramPltt, 512);
-		u32 vramTexBufSize = 0;
-
-		if(s_texImageParam.textureFormat == GX_TEXFMT_PLTT4) {
-			vramTexBufSize = (s_texImageParam.textureSSize * s_texImageParam.textureTSize) >> 2;
-		} else if(s_texImageParam.textureFormat == GX_TEXFMT_PLTT16) {
-			vramTexBufSize = (s_texImageParam.textureSSize * s_texImageParam.textureTSize) >> 1;
-		} else {
-			vramTexBufSize = (s_texImageParam.textureSSize * s_texImageParam.textureTSize);
-		}
-
-		u32 textureCRC = SIM_crc32buf(vramTex, vramTexBufSize);
-
-		u64 finalCRC = (paletteCRC | ((u64)textureCRC << 32));
-		
-
-		if(sTextureCache.count(finalCRC)) {
-			// Texture is in the cache
-			texBuf = sTextureCache[finalCRC];
-		} else {
-			G3_STAT_ADD(sStatTexCacheMisses, 1);
-			//Convert the DS texture data into a format opengl can understand
-			u8 * outTexBuf = new u8[4*s_texImageParam.textureSSize * s_texImageParam.textureTSize];
-			memset((void*)outTexBuf, 0, 4*s_texImageParam.textureSSize * s_texImageParam.textureTSize);
-
-
-			switch( s_texImageParam.textureFormat ){
-				case GX_TEXFMT_A3I5:
-					G3SIM_DecodeTexA3I5(vramTex, colorAddr, outTexBuf, s_texImageParam.textureSSize, s_texImageParam.textureTSize);
-					break;
-				case GX_TEXFMT_PLTT4:
-					G3SIM_DecodeTex4(vramTex, colorAddr, outTexBuf, s_texImageParam.textureSSize, s_texImageParam.textureTSize);
-					break;
-				case GX_TEXFMT_PLTT16:
-					G3SIM_DecodeTex16(vramTex, colorAddr, outTexBuf, s_texImageParam.textureSSize, s_texImageParam.textureTSize);
-					break;
-				case GX_TEXFMT_PLTT256:
-					G3SIM_DecodeTex256(vramTex, colorAddr, outTexBuf, s_texImageParam.textureSSize, s_texImageParam.textureTSize);
-					break;
-				case GX_TEXFMT_COMP4x4:
-					SIM_assert_always();
-					//TODO
-					break;
-				case GX_TEXFMT_A5I3:
-					G3SIM_DecodeTexA5I3(vramTex, colorAddr, outTexBuf, s_texImageParam.textureSSize, s_texImageParam.textureTSize);
-					break;
-				case GX_TEXFMT_DIRECT:
-					G3SIM_DecodeTexDirect(vramTex, outTexBuf, s_texImageParam.textureSSize, s_texImageParam.textureTSize);
-					break;
-			}
-
-			sTextureCache[finalCRC] = outTexBuf;
-			texBuf = outTexBuf;
-		}
-
-		#ifdef SDK_TRACY_ENABLE
-		TracyCZoneN(TexUploadZone, "G3 texture upload", 1);
-		#endif
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_texImageParam.textureSSize, s_texImageParam.textureTSize, GL_RGBA, GL_UNSIGNED_BYTE, (void *)texBuf);
-		G3_STAT_ADD(sStatTexUploads, 1);
-		G3_STAT_ADD(sStatTexUploadBytes, 4 * s_texImageParam.textureSSize * s_texImageParam.textureTSize);
-		#ifdef SDK_TRACY_ENABLE
-		TracyCZoneEnd(TexUploadZone);
-		#endif
+		texture = G3SIM_GetCurrentTexture();
+		G3SIM_SetTextureWrap(texture, s_texImageParam.flipS, s_texImageParam.flipT);
 
 		GLint texUnitLoc = glGetUniformLocation(g3shaderProgramID, "myTexture");
 		//set texture 0 in the shader
@@ -364,21 +446,9 @@ void G3SIM_FlushArray()
 		memset(item, 0, sizeof(g3_draw_item_t));
 
 
-		if(s_texImageParam.textureFormat != GX_TEXFMT_NONE) {
-			//Allocate and store off the texture
-			glGenTextures(1, &item->textureId);
-			glBindTexture(GL_TEXTURE_2D, item->textureId);
-        	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	
-        	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, s_texImageParam.textureSSize, s_texImageParam.textureTSize, 0,
-        	         GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, s_texImageParam.textureSSize, s_texImageParam.textureTSize, GL_RGBA, GL_UNSIGNED_BYTE, (void *)texBuf);
-			G3_STAT_ADD(sStatTexUploads, 1);
-			G3_STAT_ADD(sStatTexUploadBytes, 4 * s_texImageParam.textureSSize * s_texImageParam.textureTSize);
-		}
+		// The cached texture stays alive until at least the end of this
+		// frame, so the item can just point at it
+		item->texture = texture;
 		G3_STAT_ADD(sStatTranslucentItems, 1);
 
 		//Copy over the polygonattr
@@ -411,27 +481,14 @@ void G3SIM_DrawItems()
 	//Draws all the translucent objects that were deferred to the end of the frame.
 	for(int i=0; i<s_G3DrawItemListCount; i++) {
 		g3_draw_item_t * item = &s_G3DrawItemList[i];
-		if(item->textureId != 0){
+		if(item->texture != nullptr){
 			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, item->textureId);
+			glBindTexture(GL_TEXTURE_2D, item->texture->textureId);
+			G3SIM_SetTextureWrap(item->texture, item->texImageParam.flipS, item->texImageParam.flipT);
 			//Enable texture in the shader
 			glProgramUniform1i(g3shaderProgramID, glGetUniformLocation(g3shaderProgramID, "useTexture") , 1);
 		} else {
 			glProgramUniform1i(g3shaderProgramID, glGetUniformLocation(g3shaderProgramID, "useTexture") , 0);
-		}
-
-		if(item->texImageParam.flipS)
-		{
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT);
-		} else {
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-		}
-
-		if(item->texImageParam.flipT)
-		{
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT);
-		} else {
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		}
 
 		// Set the polygon mode in the shader
@@ -446,12 +503,12 @@ void G3SIM_DrawItems()
 		G3_STAT_ADD(sStatVertexUploadBytes, sizeof(G3SIM_Vertex_t) * item->vertsCount);
 
 		free(item->verts);
-
-		if(item->textureId != 0) {
-			glDeleteTextures(1, &item->textureId);
-		}
 	}
 	s_G3DrawItemListCount = 0;
+
+	// This runs once per frame, at the start of SIM_Render
+	sDrawFrame++;
+	G3SIM_TrimTextureCache();
 }
 #ifdef SDK_TRACY_ENABLE
 // Send this frame's counters to Tracy and reset them. Call once per frame.
