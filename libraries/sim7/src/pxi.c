@@ -79,6 +79,9 @@ void SIM_procPXI(void)
 						break;
 					}
 					while( sndCommandList != NULL ){
+#if SIM_AUDIO_DEBUG
+						SIM_AudioDebug_OnCommand( sndCommandList->id );
+#endif
 						switch( sndCommandList->id )
 						{
 							case SND_COMMAND_START_SEQ:
@@ -295,6 +298,9 @@ void SIM_procPXI(void)
             				    break;
 
             				case SND_COMMAND_INVALIDATE_WAVE:
+#if SIM_AUDIO_DEBUG
+								SIM_AudioDebug_OnInvalidateWave( (const void *)sndCommandList->arg[0], (const void *)sndCommandList->arg[1] );
+#endif
             				    break;
 
             				case SND_COMMAND_SHARED_WORK:

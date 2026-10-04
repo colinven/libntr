@@ -72,6 +72,129 @@ static const s16 s_PSGTable[8][8] =
 
 #define INTERNAL_SAMPLE_RATE 16756991.f
 
+#if SIM_AUDIO_DEBUG
+#include <atomic>
+
+// Debug tools for audio glitches. The audio callback copies what it plays into a ring buffer.
+// A writer thread saves the ring to audio_debug.wav, and once per second writes counters to
+// audio_debug.log. The callback never touches files, so this does not cause glitches itself.
+
+#define DEBUG_RING_SIZE (1 << 21) // in s16 values, about 23 seconds of stereo audio
+
+static s16 s_debugRing[DEBUG_RING_SIZE];
+static std::atomic<u32> s_debugRingWrite{0};
+static u32 s_debugRingRead = 0;
+
+static std::atomic<int> s_debugInCallback{0};
+static std::atomic<u32> s_debugDroppedDeltas{0};
+static std::atomic<u32> s_debugCommandsDuringCallback{0};
+static std::atomic<u32> s_debugInvalidateHits{0};
+static std::atomic<u32> s_debugCommandCounts[64];
+
+static int s_debugFrequency;
+
+static void WriteWavHeader(FILE *file, u32 dataBytes)
+{
+    u32 u;
+    u16 h;
+
+    fseek(file, 0, SEEK_SET);
+    fwrite("RIFF", 1, 4, file);
+    u = 36 + dataBytes; fwrite(&u, 4, 1, file);
+    fwrite("WAVEfmt ", 1, 8, file);
+    u = 16; fwrite(&u, 4, 1, file);
+    h = 1; fwrite(&h, 2, 1, file); // PCM
+    h = 2; fwrite(&h, 2, 1, file); // stereo
+    u = s_debugFrequency; fwrite(&u, 4, 1, file);
+    u = s_debugFrequency * 4; fwrite(&u, 4, 1, file);
+    h = 4; fwrite(&h, 2, 1, file);
+    h = 16; fwrite(&h, 2, 1, file);
+    fwrite("data", 1, 4, file);
+    fwrite(&dataBytes, 4, 1, file);
+    fseek(file, 0, SEEK_END);
+}
+
+static int DebugWriterThread(void *arg)
+{
+    FILE *wav = fopen("audio_debug.wav", "wb");
+    FILE *log = fopen("audio_debug.log", "w");
+    u32 dataBytes = 0;
+    u32 lastLogTicks = SDL_GetTicks();
+    u32 lastCommandCounts[64] = {0};
+
+    if (wav == NULL || log == NULL) {
+        printf("Audio debug: could not open output files\n");
+        return 0;
+    }
+    WriteWavHeader(wav, 0);
+    fprintf(log, "time_s wav_s dropped_deltas cmds_during_callback invalidate_hits commands(id:count)\n");
+
+    while (1) {
+        SDL_Delay(100);
+
+        u32 write = s_debugRingWrite.load(std::memory_order_acquire);
+        while (s_debugRingRead != write) {
+            u32 end = (write > s_debugRingRead) ? write : DEBUG_RING_SIZE;
+            fwrite(&s_debugRing[s_debugRingRead], 2, end - s_debugRingRead, wav);
+            dataBytes += (end - s_debugRingRead) * 2;
+            s_debugRingRead = end % DEBUG_RING_SIZE;
+        }
+        WriteWavHeader(wav, dataBytes);
+        fflush(wav);
+
+        u32 now = SDL_GetTicks();
+        if (now - lastLogTicks >= 1000) {
+            lastLogTicks = now;
+            fprintf(log, "%.1f %.2f %u %u %u",
+                now / 1000.0, dataBytes / 4.0 / s_debugFrequency,
+                s_debugDroppedDeltas.exchange(0),
+                s_debugCommandsDuringCallback.exchange(0),
+                s_debugInvalidateHits.exchange(0));
+            for (int i = 0; i < 64; i++) {
+                u32 count = s_debugCommandCounts[i].load();
+                if (count != lastCommandCounts[i]) {
+                    fprintf(log, " %d:%u", i, count - lastCommandCounts[i]);
+                    lastCommandCounts[i] = count;
+                }
+            }
+            fprintf(log, "\n");
+            fflush(log);
+        }
+    }
+    return 0;
+}
+
+static void DebugPushSamples(const s16 *samples, int count)
+{
+    u32 write = s_debugRingWrite.load(std::memory_order_relaxed);
+    for (int i = 0; i < count; i++) {
+        s_debugRing[write] = samples[i];
+        write = (write + 1) % DEBUG_RING_SIZE;
+    }
+    s_debugRingWrite.store(write, std::memory_order_release);
+}
+
+void SIM_AudioDebug_OnCommand(int commandId)
+{
+    if (commandId >= 0 && commandId < 64) {
+        s_debugCommandCounts[commandId]++;
+    }
+    if (s_debugInCallback.load()) {
+        s_debugCommandsDuringCallback++;
+    }
+}
+
+void SIM_AudioDebug_OnInvalidateWave(const void *start, const void *end)
+{
+    for (int chNo = 0; chNo < 16; chNo++) {
+        const u8 *data = s_SIM_sndsad[chNo];
+        if ((s_SIM_sndcnt[chNo] & (1u << 31)) && (const u8 *)start <= data && data <= (const u8 *)end) {
+            s_debugInvalidateHits++;
+        }
+    }
+}
+#endif
+
 
 void SIM_Audio_Init(int aAudioFrequency)
 {
@@ -96,6 +219,11 @@ void SIM_Audio_Init(int aAudioFrequency)
         printf("SDL Error %s\n", SDL_GetError());
     }
     SDL_PauseAudio(0);
+
+#if SIM_AUDIO_DEBUG
+    s_debugFrequency = aAudioFrequency;
+    SDL_CreateThread(DebugWriterThread, "AudioDebug", NULL);
+#endif
 }
 
 static u8 GetNextADPCMByte(int chNo);
@@ -106,6 +234,9 @@ void SIM_Audio_Callback(void *userdata, Uint8 *stream, int len)
     #ifdef SDK_TRACY_ENABLE
     TracyCZone(ctx, 1);
     #endif
+#if SIM_AUDIO_DEBUG
+    s_debugInCallback = 1;
+#endif
     // Run NitroComposer
     SND_UpdateExChannel();
     SND_SeqMain(TRUE);
@@ -145,6 +276,12 @@ void SIM_Audio_Callback(void *userdata, Uint8 *stream, int len)
         right = left;
         s_blipTimer += 512;
 
+#if SIM_AUDIO_DEBUG
+        if (left == 0 && s_outputLastLeftSample != 0) {
+            s_debugDroppedDeltas++;
+        }
+#endif
+
         if(left != 0) {
             blip_add_delta(s_BlipLeft, s_blipTimer, left - s_outputLastLeftSample);
         }
@@ -169,6 +306,10 @@ void SIM_Audio_Callback(void *userdata, Uint8 *stream, int len)
     s16 * tempbuf = (s16*)stream;
     blip_read_samples(s_BlipLeft, tempbuf, avail, TRUE);
     blip_read_samples(s_BlipRight, tempbuf+1, avail, TRUE);
+#if SIM_AUDIO_DEBUG
+    DebugPushSamples(tempbuf, avail * 2);
+    s_debugInCallback = 0;
+#endif
     #ifdef SDK_TRACY_ENABLE
     TracyCZoneEnd(ctx);
     #endif

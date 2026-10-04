@@ -6,6 +6,12 @@
 #include <simulator/sim.h>
 #include <SDL2/SDL.h>
 
+// Set to 1 to write audio_debug.wav and audio_debug.log in the game folder.
+// They help find where audio glitches come from.
+#ifndef SIM_AUDIO_DEBUG
+#define SIM_AUDIO_DEBUG 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,6 +34,11 @@ void SIM_Audio_NextSamplePCM16(int chNo);
 void SIM_Audio_NextSampleADPCM(int chNo);
 void SIM_Audio_NextSamplePSG(int chNo);
 void SIM_Audio_NextSampleNoise(int chNo);
+
+#if SIM_AUDIO_DEBUG
+void SIM_AudioDebug_OnCommand(int commandId);
+void SIM_AudioDebug_OnInvalidateWave(const void *start, const void *end);
+#endif
 
 #ifdef __cplusplus
 }
