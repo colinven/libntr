@@ -131,9 +131,23 @@ static GLuint g3FrameBuffer;
 static GLuint fboId;
 static GLuint g2FrameBuffer;
 
+// Each 2D layer (4 BGs, 5 OBJ layers and the OBJ window) is fully uploaded
+// twice per frame: once for the main screen and once for the sub screen.
+// Writing into a texture the GPU is still drawing from makes the driver wait,
+// so each layer takes turns through a ring of textures instead of reusing
+// one. 2 uploads per frame out of 6 leaves about 3 frames of slack.
+#define SIM_2D_LAYER_TEXTURE_RING 6
+
+typedef struct {
+  GLuint ids[SIM_2D_LAYER_TEXTURE_RING];
+  u32 current; // index of the texture that was uploaded last
+} Sim2DLayerTextures;
+
+static Sim2DLayerTextures s_bgTextures[4];
+static Sim2DLayerTextures s_objTextures[5];
+static Sim2DLayerTextures s_objWindowTextures;
+
 // Texture Objects
-GLuint s_bgTextureId[4];
-GLuint s_objTextureId[5];
 static GLuint g2TextureId;
 static GLuint g3TextureId1024;
 static GLuint g3TextureId1024x512;
@@ -158,7 +172,6 @@ static GLuint g3TextureId8;
 static GLuint g3TextureId8x16;
 static GLuint g3RenderTextureId;
 static GLuint dummyScreenTextureId;
-static GLuint objWindowTextureId;
 
 GLint s_bgTexUnits[] = {0, 1, 2, 3};
 static GLint s_objTexUnits[] = {4, 5, 6, 7, 8};
@@ -247,6 +260,51 @@ static SDL_sem *vcountResetSemaphore;
 static SDL_sem *vcountVblankSemaphore;
 
 SDL_Joystick *s_SIM_SDLJoystick = NULL;
+
+static void Init2DLayerTextures(Sim2DLayerTextures *layer, GLint texUnit) {
+  glGenTextures(SIM_2D_LAYER_TEXTURE_RING, layer->ids);
+  glActiveTexture(GL_TEXTURE0 + texUnit);
+
+  for (int i = 0; i < SIM_2D_LAYER_TEXTURE_RING; i++) {
+    glBindTexture(GL_TEXTURE_2D, layer->ids[i]);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SIM_NDS_SCREEN_WIDTH,
+                 SIM_NDS_SCREEN_HEIGHT * 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+  }
+
+  // The last one is left bound, so treat it as the current one.
+  layer->current = SIM_2D_LAYER_TEXTURE_RING - 1;
+}
+
+static GLuint Current2DLayerTexture(const Sim2DLayerTextures *layer) {
+  return layer->ids[layer->current];
+}
+
+// Moves the layer to the next texture in its ring, binds it to the active
+// texture unit and uploads a full layer image (256x384 RGBA) into it.
+static void Upload2DLayer(Sim2DLayerTextures *layer, const void *pixels) {
+#ifdef SDK_TRACY_ENABLE
+  TracyCZoneN(ctx, "G2 layer upload", 1);
+#endif
+  layer->current = (layer->current + 1) % SIM_2D_LAYER_TEXTURE_RING;
+  glBindTexture(GL_TEXTURE_2D, Current2DLayerTexture(layer));
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_NDS_SCREEN_WIDTH,
+                  SIM_NDS_SCREEN_HEIGHT * 2, GL_RGBA, GL_UNSIGNED_BYTE,
+                  pixels);
+#ifdef SDK_TRACY_ENABLE
+  TracyCZoneEnd(ctx);
+#endif
+}
+
+// Called by G2SIM_DrawBG with the BG's texture unit already active.
+void SIM_UploadBGLayer(u8 bgNum, const void *pixels) {
+  Upload2DLayer(&s_bgTextures[bgNum], pixels);
+}
 
 GLuint SIM_GetTextureID() {
   if (s_texImageParam.textureSSize == 8 && s_texImageParam.textureTSize == 16) {
@@ -450,37 +508,15 @@ void *SIM_RenderInit(void *arg) {
 
   GLchar *errorBuf;
 
-  glGenTextures(4, s_bgTextureId);
-  glActiveTexture(GL_TEXTURE0);
-
   for (int i = 0; i < 4; i++) {
-    glActiveTexture(GL_TEXTURE0 + s_bgTexUnits[i]);
-    glBindTexture(GL_TEXTURE_2D, s_bgTextureId[i]);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SIM_NDS_SCREEN_WIDTH,
-                 SIM_NDS_SCREEN_HEIGHT * 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    Init2DLayerTextures(&s_bgTextures[i], s_bgTexUnits[i]);
   }
-
-  glGenTextures(5, s_objTextureId);
-  glActiveTexture(GL_TEXTURE0);
 
   for (int i = 0; i < 5; i++) {
-    glActiveTexture(GL_TEXTURE0 + s_objTexUnits[i]);
-    glBindTexture(GL_TEXTURE_2D, s_objTextureId[i]);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SIM_NDS_SCREEN_WIDTH,
-                 SIM_NDS_SCREEN_HEIGHT * 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    Init2DLayerTextures(&s_objTextures[i], s_objTexUnits[i]);
   }
+
+  Init2DLayerTextures(&s_objWindowTextures, s_objWindowTexUnit);
 
 #define GenerateTexture(_id, _width, _height)                                  \
   glGenTextures(1, &_id);                                                      \
@@ -531,8 +567,6 @@ void *SIM_RenderInit(void *arg) {
   glUseProgram(_id);
 
   GenerateTexture(dummyScreenTextureId, SIM_NDS_SCREEN_WIDTH,
-                  SIM_NDS_SCREEN_HEIGHT * 2);
-  GenerateTexture(objWindowTextureId, SIM_NDS_SCREEN_WIDTH,
                   SIM_NDS_SCREEN_HEIGHT * 2);
   GenerateTexture(g3TextureId1024, 1024, 1024);
   GenerateTexture(g3TextureId1024x512, 1024, 512);
@@ -816,7 +850,6 @@ static void DrawEngine(BOOL isSub) {
   // write all OAMs to the textures based on their priorities
   for (int i = 0; i < 4; i++) {
     glActiveTexture(GL_TEXTURE0 + s_objTexUnits[i]);
-    glBindTexture(GL_TEXTURE_2D, s_objTextureId[i]);
     void *oamPixelBuf;
     switch (i) {
     case 0:
@@ -836,9 +869,7 @@ static void DrawEngine(BOOL isSub) {
       oamPixelBuf = NULL;
       break;
     }
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_NDS_SCREEN_WIDTH,
-                    SIM_NDS_SCREEN_HEIGHT * 2, GL_RGBA, GL_UNSIGNED_BYTE,
-                    (void *)oamPixelBuf);
+    Upload2DLayer(&s_objTextures[i], oamPixelBuf);
   }
 
   glActiveTexture(GL_TEXTURE0 + s_bgTexUnits[0]);
@@ -847,7 +878,7 @@ static void DrawEngine(BOOL isSub) {
     if (bg0as3d) {
       glBindTexture(GL_TEXTURE_2D, g3RenderTextureId);
     } else {
-      glBindTexture(GL_TEXTURE_2D, s_bgTextureId[0]);
+      glBindTexture(GL_TEXTURE_2D, Current2DLayerTexture(&s_bgTextures[0]));
     }
   } else {
     glBindTexture(GL_TEXTURE_2D, dummyScreenTextureId);
@@ -855,11 +886,8 @@ static void DrawEngine(BOOL isSub) {
 
   // Setup the OBJWindow texture
   glActiveTexture(GL_TEXTURE0 + s_objWindowTexUnit);
-  glBindTexture(GL_TEXTURE_2D, objWindowTextureId);
   u8 *objWindowBuf = isSub ? objWindowsTex : objWindowTex;
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_NDS_SCREEN_WIDTH,
-                  SIM_NDS_SCREEN_HEIGHT * 2, GL_RGBA, GL_UNSIGNED_BYTE,
-                  (void *)objWindowBuf);
+  Upload2DLayer(&s_objWindowTextures, objWindowBuf);
   glProgramUniform1i(
       g2shaderProgramID,
       glGetUniformLocation(g2shaderProgramID, "objWindowTexture"),
