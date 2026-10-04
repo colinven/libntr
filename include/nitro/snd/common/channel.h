@@ -272,6 +272,7 @@ void SND_SetChannelPan7(int chNo, int pan);
 BOOL SND_IsChannelActive7(int chNo);
 void SND_SetMasterPan7(int pan);
 u32 SND_GetChannelControl7(int chNo);
+void SNDi_SetSurroundDecay7(int decay);
 #endif
 
 #ifdef SDK_ARM7

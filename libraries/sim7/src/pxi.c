@@ -13,6 +13,8 @@
 #include "tracy/TracyC.h"
 #endif
 
+#define UNPACK_COMMAND(arg, shift, bit) (((arg) >> (shift)) & ((1 << (bit)) - 1))
+
 SIM_queue_t * drawQueuePtr;
 SIM_queue_t * pxiQueuePtr;
 SIM_queue_t * pxi7to9QueuePtr;
@@ -79,20 +81,22 @@ void SIM_procPXI(void)
 						break;
 					}
 					while( sndCommandList != NULL ){
+						// The audio callback runs the sound driver on its own thread. Hold its lock
+						// so a command never changes players, tracks or channels while the callback
+						// reads them. The timer commands wait for alarm threads, so they run unlocked.
+						BOOL lockAudio = sndCommandList->id != SND_COMMAND_START_TIMER
+							&& sndCommandList->id != SND_COMMAND_STOP_TIMER;
+						if( lockAudio )
+						{
+							SDL_LockAudio();
+						}
 #if SIM_AUDIO_DEBUG
 						SIM_AudioDebug_OnCommand( sndCommandList->id );
 #endif
 						switch( sndCommandList->id )
 						{
 							case SND_COMMAND_START_SEQ:
-								{
-
-									u8 playerNum = sndCommandList->arg[0];
-									u64 sseqDataPtr = sndCommandList->arg[1];
-									u32 sseqDataOffset = sndCommandList->arg[2];
-									u64 waveBankPtr = sndCommandList->arg[3];
-								}
-
+								SND_StartSeq7(sndCommandList->arg[0], (void *)sndCommandList->arg[1], sndCommandList->arg[2], (void *)sndCommandList->arg[3]);
             				    break;
 
             				case SND_COMMAND_STOP_SEQ:
@@ -128,31 +132,37 @@ void SIM_procPXI(void)
             				    break;
 
             				case SND_COMMAND_SKIP_SEQ:
-
+								SND_SkipSeq7(sndCommandList->arg[0], sndCommandList->arg[1]);
             				    break;
 
             				case SND_COMMAND_PLAYER_PARAM:
-
+								SNDi_SetPlayerParam7(sndCommandList->arg[0], sndCommandList->arg[1], sndCommandList->arg[2], sndCommandList->arg[3]);
             				    break;
 
             				case SND_COMMAND_TRACK_PARAM:
-
+								SNDi_SetTrackParam7(UNPACK_COMMAND(sndCommandList->arg[0], 0, 24), sndCommandList->arg[1], sndCommandList->arg[2], sndCommandList->arg[3], UNPACK_COMMAND(sndCommandList->arg[0], 24, 8));
             				    break;
 
             				case SND_COMMAND_MUTE_TRACK:
-
+								SND_SetTrackMute7(sndCommandList->arg[0], sndCommandList->arg[1], (SNDSeqMute)sndCommandList->arg[2]);
             				    break;
 
             				case SND_COMMAND_ALLOCATABLE_CHANNEL:
-
+								SND_SetTrackAllocatableChannel7(sndCommandList->arg[0], sndCommandList->arg[1], sndCommandList->arg[2]);
             				    break;
 
             				case SND_COMMAND_PLAYER_LOCAL_VAR:
-
+								if( win_SNDi_SharedWork )
+								{
+									win_SNDi_SharedWork->player[sndCommandList->arg[0]].variable[sndCommandList->arg[1]] = (s16)sndCommandList->arg[2];
+								}
             				    break;
 
             				case SND_COMMAND_PLAYER_GLOBAL_VAR:
-
+								if( win_SNDi_SharedWork )
+								{
+									win_SNDi_SharedWork->globalVariable[sndCommandList->arg[0]] = (s16)sndCommandList->arg[1];
+								}
             				    break;
 
             				case SND_COMMAND_START_TIMER:
@@ -271,36 +281,44 @@ void SIM_procPXI(void)
             				    break;
 
             				case SND_COMMAND_SURROUND_DECAY:
+								SNDi_SetSurroundDecay7(sndCommandList->arg[0]);
             				    break;
 
             				case SND_COMMAND_MASTER_VOLUME:
             				    break;
 
             				case SND_COMMAND_MASTER_PAN:
+								SND_SetMasterPan7((int)sndCommandList->arg[0]);
             				    break;
 
             				case SND_COMMAND_OUTPUT_SELECTOR:
             				    break;
 
             				case SND_COMMAND_LOCK_CHANNEL:
+								SND_LockChannel7(sndCommandList->arg[0], sndCommandList->arg[1]);
             				    break;
 
             				case SND_COMMAND_UNLOCK_CHANNEL:
+								SND_UnlockChannel7(sndCommandList->arg[0], sndCommandList->arg[1]);
             				    break;
 
             				case SND_COMMAND_STOP_UNLOCKED_CHANNEL:
+								SND_StopUnlockedChannel7(sndCommandList->arg[0], sndCommandList->arg[1]);
             				    break;
 
             				case SND_COMMAND_INVALIDATE_SEQ:
+								SND_InvalidateSeq7((const void *)sndCommandList->arg[0], (const void *)sndCommandList->arg[1]);
             				    break;
 
             				case SND_COMMAND_INVALIDATE_BANK:
+								SND_InvalidateBank7((const void *)sndCommandList->arg[0], (const void *)sndCommandList->arg[1]);
             				    break;
 
             				case SND_COMMAND_INVALIDATE_WAVE:
 #if SIM_AUDIO_DEBUG
 								SIM_AudioDebug_OnInvalidateWave( (const void *)sndCommandList->arg[0], (const void *)sndCommandList->arg[1] );
 #endif
+								SND_InvalidateWave((const void *)sndCommandList->arg[0], (const void *)sndCommandList->arg[1]);
             				    break;
 
             				case SND_COMMAND_SHARED_WORK:
@@ -311,6 +329,10 @@ void SIM_procPXI(void)
             				    break;
 							default:
 								break;
+						}
+						if( lockAudio )
+						{
+							SDL_UnlockAudio();
 						}
 						sndCommandList = sndCommandList->next;
 					} 

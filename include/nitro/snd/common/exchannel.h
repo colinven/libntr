@@ -168,6 +168,12 @@ typedef struct SNDExChannel {
     u32 SND_GetLockedChannel(u32 flags);
 #endif
 
+#ifdef SDK_PORT
+    void SND_LockChannel7(u32 chBitMask, u32 flags);
+    void SND_UnlockChannel7(u32 chBitMask, u32 flags);
+    void SND_StopUnlockedChannel7(u32 chBitMask, u32 flags);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
