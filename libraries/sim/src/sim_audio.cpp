@@ -92,6 +92,8 @@ static std::atomic<u32> s_debugInvalidateHits{0};
 static std::atomic<u32> s_debugCommandCounts[64];
 
 static int s_debugFrequency;
+static blip_t *s_debugBlipOld;
+static int s_debugOldLastSample;
 
 static void WriteWavHeader(FILE *file, u32 dataBytes)
 {
@@ -203,6 +205,10 @@ void SIM_Audio_Init(int aAudioFrequency)
 
     blip_set_rates(s_BlipLeft, INTERNAL_SAMPLE_RATE * 1.0f, aAudioFrequency);
     blip_set_rates(s_BlipRight, INTERNAL_SAMPLE_RATE * 1.0f, aAudioFrequency);
+#if SIM_AUDIO_DEBUG
+    s_debugBlipOld = blip_new(512*64);
+    blip_set_rates(s_debugBlipOld, INTERNAL_SAMPLE_RATE * 1.0f, aAudioFrequency);
+#endif
 
     memset(&s_requestedAudioSpec, 0, sizeof(SDL_AudioSpec));
     s_requestedAudioSpec.freq = aAudioFrequency;
@@ -282,12 +288,22 @@ void SIM_Audio_Callback(void *userdata, Uint8 *stream, int len)
         }
 #endif
 
-        if(left != 0) {
+        // blip_buf works on changes, so every change must be added, also a change back to 0.
+        // Skipping those leaves the output off by the last value, which sounds like static.
+        if(left != s_outputLastLeftSample) {
             blip_add_delta(s_BlipLeft, s_blipTimer, left - s_outputLastLeftSample);
         }
-        if(right != 0) {
+        if(right != s_outputLastRightSample) {
             blip_add_delta(s_BlipRight, s_blipTimer, right - s_outputLastRightSample);
         }
+
+#if SIM_AUDIO_DEBUG
+        // Also mix the way the old code did, to record how much static it added.
+        if(left != 0) {
+            blip_add_delta(s_debugBlipOld, s_blipTimer, left - s_debugOldLastSample);
+        }
+        s_debugOldLastSample = left;
+#endif
 
         s_outputLastLeftSample = left;
         s_outputLastRightSample = right;
@@ -295,6 +311,9 @@ void SIM_Audio_Callback(void *userdata, Uint8 *stream, int len)
         if(s_blipTimer >= 512 * 128) {
             blip_end_frame(s_BlipLeft, s_blipTimer);
             blip_end_frame(s_BlipRight, s_blipTimer);
+#if SIM_AUDIO_DEBUG
+            blip_end_frame(s_debugBlipOld, s_blipTimer);
+#endif
             s_blipTimer = 0;
         }
     }
@@ -307,7 +326,18 @@ void SIM_Audio_Callback(void *userdata, Uint8 *stream, int len)
     blip_read_samples(s_BlipLeft, tempbuf, avail, TRUE);
     blip_read_samples(s_BlipRight, tempbuf+1, avail, TRUE);
 #if SIM_AUDIO_DEBUG
-    DebugPushSamples(tempbuf, avail * 2);
+    // The WAV holds what is played on the left, and the old mixer's output on the right.
+    static s16 oldSamples[4096];
+    static s16 wavSamples[8192];
+    if(avail > 4096) {
+        avail = 4096;
+    }
+    blip_read_samples(s_debugBlipOld, oldSamples, avail, FALSE);
+    for(int i = 0; i < avail; i++) {
+        wavSamples[i * 2] = tempbuf[i * 2];
+        wavSamples[i * 2 + 1] = oldSamples[i];
+    }
+    DebugPushSamples(wavSamples, avail * 2);
     s_debugInCallback = 0;
 #endif
     #ifdef SDK_TRACY_ENABLE
