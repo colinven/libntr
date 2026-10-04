@@ -9,7 +9,7 @@
 // Set to 1 to write audio_debug.wav and audio_debug.log in the game folder.
 // They help find where audio glitches come from.
 #ifndef SIM_AUDIO_DEBUG
-#define SIM_AUDIO_DEBUG 1
+#define SIM_AUDIO_DEBUG 0
 #endif
 
 #ifdef __cplusplus
