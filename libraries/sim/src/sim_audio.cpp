@@ -74,6 +74,7 @@ static const s16 s_PSGTable[8][8] =
 
 #if SIM_AUDIO_DEBUG
 #include <atomic>
+#include <cstdarg>
 
 // Debug tools for audio glitches. The audio callback copies what it plays into a ring buffer.
 // A writer thread saves the ring to audio_debug.wav, and once per second writes counters to
@@ -92,6 +93,59 @@ static std::atomic<u32> s_debugInvalidateHits{0};
 static std::atomic<u32> s_debugCommandCounts[64];
 
 static int s_debugFrequency;
+static SDL_mutex *s_debugTextMutex;
+static char s_debugText[1 << 16];
+static int s_debugTextLength;
+
+// Adds a line to audio_debug.log. Only buffers text; the writer thread does the file write.
+void SIM_AudioDebug_Printf(const char *format, ...)
+{
+    va_list args;
+
+    if (s_debugTextMutex == NULL) {
+        return;
+    }
+    SDL_LockMutex(s_debugTextMutex);
+    int room = (int)sizeof(s_debugText) - s_debugTextLength;
+    if (room > 1) {
+        int written = snprintf(s_debugText + s_debugTextLength, room, "%.3f ", SDL_GetTicks() / 1000.0);
+        s_debugTextLength += (written < room) ? written : room - 1;
+        room = (int)sizeof(s_debugText) - s_debugTextLength;
+        va_start(args, format);
+        written = vsnprintf(s_debugText + s_debugTextLength, room, format, args);
+        va_end(args);
+        s_debugTextLength += (written < room) ? written : room - 1;
+    }
+    SDL_UnlockMutex(s_debugTextMutex);
+}
+
+static void DebugLogPlayers(FILE *log)
+{
+    for (int playerNo = 0; playerNo < SND_PLAYER_NUM; playerNo++) {
+        SNDPlayer *player = &SNDi_Work.player[playerNo];
+        if (!player->active_flag) {
+            continue;
+        }
+        fprintf(log, "  player %d: prepared %d pause %d prio %d volume %d extFader %d tracks",
+            playerNo, player->prepared_flag, player->pause_flag, player->prio, player->volume, player->extFader);
+        for (int t = 0; t < SND_TRACK_NUM_PER_PLAYER; t++) {
+            if (player->tracks[t] != 0xFF) {
+                SNDTrack *track = &SNDi_Work.track[player->tracks[t]];
+                fprintf(log, " [%d mask %04x/%d vol %d ext %d mute %d]", t, track->channel_mask,
+                    track->channel_mask_flag, track->volume, track->extFader, track->mute_flag);
+            }
+        }
+        fprintf(log, "\n");
+    }
+    fprintf(log, "  locked %04x weak %04x active channels", SND_GetLockedChannel(0),
+        SND_GetLockedChannel(SND_LOCK_IMPLIED_ALLOC_CHANNEL));
+    for (int ch = 0; ch < SND_CHANNEL_NUM; ch++) {
+        if (SNDi_Work.channel[ch].active_flag) {
+            fprintf(log, " %d", ch);
+        }
+    }
+    fprintf(log, "\n");
+}
 static blip_t *s_debugBlipOld;
 static int s_debugOldLastSample;
 
@@ -144,6 +198,11 @@ static int DebugWriterThread(void *arg)
         WriteWavHeader(wav, dataBytes);
         fflush(wav);
 
+        SDL_LockMutex(s_debugTextMutex);
+        fwrite(s_debugText, 1, s_debugTextLength, log);
+        s_debugTextLength = 0;
+        SDL_UnlockMutex(s_debugTextMutex);
+
         u32 now = SDL_GetTicks();
         if (now - lastLogTicks >= 1000) {
             lastLogTicks = now;
@@ -160,6 +219,7 @@ static int DebugWriterThread(void *arg)
                 }
             }
             fprintf(log, "\n");
+            DebugLogPlayers(log);
             fflush(log);
         }
     }
@@ -228,6 +288,7 @@ void SIM_Audio_Init(int aAudioFrequency)
 
 #if SIM_AUDIO_DEBUG
     s_debugFrequency = aAudioFrequency;
+    s_debugTextMutex = SDL_CreateMutex();
     SDL_CreateThread(DebugWriterThread, "AudioDebug", NULL);
 #endif
 }

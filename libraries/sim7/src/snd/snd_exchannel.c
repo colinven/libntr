@@ -2,6 +2,7 @@
 
 #include <nitro/snd/common/util.h>
 #include <nitro/snd/common/work.h>
+#include <simulator/sim_audio.h>
 
 #ifndef SDK_FROM_TOOL
 
@@ -484,10 +485,14 @@ SNDExChannel *SND_AllocExChannel(u32 chBitMask,
         ch_p = ch2_p;
     }
 
-    if (ch_p == NULL)
+    if (ch_p == NULL || prio < ch_p->prio)
+    {
+#if SIM_AUDIO_DEBUG
+        SIM_AudioDebug_Printf("alloc failed: mask %04x prio %d (best ch %d prio %d)\n", chBitMask, prio,
+            ch_p ? ch_p->myNo : -1, ch_p ? ch_p->prio : -1);
+#endif
         return NULL;
-    if (prio < ch_p->prio)
-        return NULL;
+    }
 
     if (ch_p->callback != NULL)
     {

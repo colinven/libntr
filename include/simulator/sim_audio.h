@@ -38,6 +38,7 @@ void SIM_Audio_NextSampleNoise(int chNo);
 #if SIM_AUDIO_DEBUG
 void SIM_AudioDebug_OnCommand(int commandId);
 void SIM_AudioDebug_OnInvalidateWave(const void *start, const void *end);
+void SIM_AudioDebug_Printf(const char *format, ...);
 #endif
 
 #ifdef __cplusplus

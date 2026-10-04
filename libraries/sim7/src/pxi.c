@@ -92,6 +92,25 @@ void SIM_procPXI(void)
 						}
 #if SIM_AUDIO_DEBUG
 						SIM_AudioDebug_OnCommand( sndCommandList->id );
+						switch( sndCommandList->id )
+						{
+							case SND_COMMAND_PREPARE_SEQ:
+							case SND_COMMAND_STOP_SEQ:
+							case SND_COMMAND_START_PREPARED_SEQ:
+							case SND_COMMAND_PLAYER_PARAM:
+							case SND_COMMAND_TRACK_PARAM:
+							case SND_COMMAND_ALLOCATABLE_CHANNEL:
+							case SND_COMMAND_LOCK_CHANNEL:
+							case SND_COMMAND_UNLOCK_CHANNEL:
+							case SND_COMMAND_STOP_UNLOCKED_CHANNEL:
+							case SND_COMMAND_MASTER_PAN:
+								SIM_AudioDebug_Printf( "cmd %d: %llx %llx %llx %llx\n", sndCommandList->id,
+									(unsigned long long)sndCommandList->arg[0], (unsigned long long)sndCommandList->arg[1],
+									(unsigned long long)sndCommandList->arg[2], (unsigned long long)sndCommandList->arg[3] );
+								break;
+							default:
+								break;
+						}
 #endif
 						switch( sndCommandList->id )
 						{
