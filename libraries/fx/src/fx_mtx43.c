@@ -28,14 +28,32 @@ void MTX_Identity43_(MtxFx43* pDst)
 
 void MTX_Copy43To44_(const MtxFx43* pSrc, MtxFx44* pDst)
 {
-    //PCPORT_TODO
-    SIM_assert_always_msg("Not implemented");
+    // Each row gets a 4th column: 0 for the 3x3 rows, 1 for the translation row.
+    for (int row = 0; row < 4; row++) {
+        pDst->a[row * 4 + 0] = pSrc->a[row * 3 + 0];
+        pDst->a[row * 4 + 1] = pSrc->a[row * 3 + 1];
+        pDst->a[row * 4 + 2] = pSrc->a[row * 3 + 2];
+        pDst->a[row * 4 + 3] = (row == 3) ? FX32_ONE : 0;
+    }
 }
 
 void MTX_Transpose43_(const MtxFx43* pSrc, MtxFx43* pDst)
 {
-    //PCPORT_TODO
-    SIM_assert_always_msg("Not implemented");
+    // Copy first so pSrc == pDst works, like the original.
+    MtxFx43 src = *pSrc;
+
+    pDst->_00 = src._00;
+    pDst->_01 = src._10;
+    pDst->_02 = src._20;
+    pDst->_10 = src._01;
+    pDst->_11 = src._11;
+    pDst->_12 = src._21;
+    pDst->_20 = src._02;
+    pDst->_21 = src._12;
+    pDst->_22 = src._22;
+    pDst->_30 = 0;
+    pDst->_31 = 0;
+    pDst->_32 = 0;
 }
 #else
 asm void MTX_Identity43_ (register MtxFx43 *pDst)
@@ -106,9 +124,20 @@ void MTX_TransApply43 (const MtxFx43 *pSrc, MtxFx43 *pDst, fx32 x, fx32 y, fx32 
 }
 
 #ifdef SDK_PORT
-void MTX_Scale43_(register MtxFx43* pDst, register fx32 x, register fx32 y, register fx32 z)
+void MTX_Scale43_(MtxFx43* pDst, fx32 x, fx32 y, fx32 z)
 {
-    SIM_assert_always_msg("Not implemented");
+    pDst->_00 = x;
+    pDst->_01 = 0;
+    pDst->_02 = 0;
+    pDst->_10 = 0;
+    pDst->_11 = y;
+    pDst->_12 = 0;
+    pDst->_20 = 0;
+    pDst->_21 = 0;
+    pDst->_22 = z;
+    pDst->_30 = 0;
+    pDst->_31 = 0;
+    pDst->_32 = 0;
 }
 #else
 
