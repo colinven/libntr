@@ -133,13 +133,25 @@ void MTX_TransApply44 (const MtxFx44 *pSrc, MtxFx44 *pDst, fx32 x, fx32 y, fx32 
 
 #ifdef SDK_PORT
 void MTX_Transpose44_(const MtxFx44* pSrc, MtxFx44* pDst) {
-    //PCPORT_TODO
-    SIM_assert_always_msg("Not implemented");
+    // Copy first so pSrc == pDst works, like the original.
+    MtxFx44 src = *pSrc;
+
+    for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 4; col++) {
+            pDst->a[row * 4 + col] = src.a[col * 4 + row];
+        }
+    }
 }
 
 void MTX_Scale44_(MtxFx44 * pDst, fx32 x, fx32 y, fx32 z) {
-    //PCPORT_TODO
-    SIM_assert_always_msg("Not implemented");
+    for (int i = 0; i < 16; i++) {
+        pDst->a[i] = 0;
+    }
+
+    pDst->_00 = x;
+    pDst->_11 = y;
+    pDst->_22 = z;
+    pDst->_33 = FX32_ONE;
 }
 #else
 asm void MTX_Transpose44_ (register const MtxFx44 *pSrc, register MtxFx44 *pDst)
@@ -227,24 +239,21 @@ void MTX_ScaleApply44 (const MtxFx44 *pSrc, MtxFx44 *pDst, fx32 x, fx32 y, fx32 
 
 #ifdef SDK_PORT
 void MTX_RotX44_(MtxFx44 * pDst, fx32 sinVal, fx32 cosVal) {
-    pDst->a[5] = cosVal;
-    pDst->a[10] = cosVal;
-    pDst->a[6] = -sinVal;
-    pDst->a[9] = sinVal;
+    MTX_Scale44_(pDst, FX32_ONE, cosVal, cosVal);
+    pDst->_12 = sinVal;
+    pDst->_21 = -sinVal;
 }
 
 void MTX_RotY44_(MtxFx44 * pDst, fx32 sinVal, fx32 cosVal) {
-    pDst->a[0] = cosVal;
-    pDst->a[10] = cosVal;
-    pDst->a[2] = sinVal;
-    pDst->a[8] = -sinVal;
+    MTX_Scale44_(pDst, cosVal, FX32_ONE, cosVal);
+    pDst->_20 = sinVal;
+    pDst->_02 = -sinVal;
 }
 
 void MTX_RotZ44_(MtxFx44 * pDst, fx32 sinVal, fx32 cosVal) {
-    pDst->a[0] = cosVal;
-    pDst->a[5] = cosVal;
-    pDst->a[4] = sinVal;
-    pDst->a[1] = -sinVal;
+    MTX_Scale44_(pDst, cosVal, cosVal, FX32_ONE);
+    pDst->_01 = sinVal;
+    pDst->_10 = -sinVal;
 }
 #else
 #include <nitro/code16.h>

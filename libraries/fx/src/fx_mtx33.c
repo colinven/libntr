@@ -31,26 +31,58 @@ void MTX_Identity33_(MtxFx33* pDst)
 
 void MTX_Copy33To43_(const MtxFx33* pSrc, MtxFx43* pDst)
 {
-    SIM_assert_always_msg("Not implemented");
-    return;
+    for (int i = 0; i < 9; i++) {
+        pDst->a[i] = pSrc->a[i];
+    }
+
+    pDst->_30 = 0;
+    pDst->_31 = 0;
+    pDst->_32 = 0;
 }
 
 void MTX_Copy33To44_(const MtxFx33* pSrc, MtxFx44* pDst)
 {
-    SIM_assert_always_msg("Not implemented");
-    return;
+    // Each row gets a 4th column of 0, and the last row is (0, 0, 0, 1).
+    for (int row = 0; row < 3; row++) {
+        pDst->a[row * 4 + 0] = pSrc->a[row * 3 + 0];
+        pDst->a[row * 4 + 1] = pSrc->a[row * 3 + 1];
+        pDst->a[row * 4 + 2] = pSrc->a[row * 3 + 2];
+        pDst->a[row * 4 + 3] = 0;
+    }
+
+    pDst->_30 = 0;
+    pDst->_31 = 0;
+    pDst->_32 = 0;
+    pDst->_33 = FX32_ONE;
 }
 
 void MTX_Transpose33_(const MtxFx33* pSrc, MtxFx33* pDst)
 {
-    SIM_assert_always_msg("Not implemented");
-    return;
+    // Copy first so pSrc == pDst works, like the original.
+    MtxFx33 src = *pSrc;
+
+    pDst->_00 = src._00;
+    pDst->_01 = src._10;
+    pDst->_02 = src._20;
+    pDst->_10 = src._01;
+    pDst->_11 = src._11;
+    pDst->_12 = src._21;
+    pDst->_20 = src._02;
+    pDst->_21 = src._12;
+    pDst->_22 = src._22;
 }
 
 void MTX_Scale33_(MtxFx33* pDst, fx32 x, fx32 y, fx32 z)
 {
-    SIM_assert_always_msg("Not implemented");
-    return;
+    pDst->_00 = x;
+    pDst->_01 = 0;
+    pDst->_02 = 0;
+    pDst->_10 = 0;
+    pDst->_11 = y;
+    pDst->_12 = 0;
+    pDst->_20 = 0;
+    pDst->_21 = 0;
+    pDst->_22 = z;
 }
 #else
 
